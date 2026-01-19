@@ -1,126 +1,93 @@
 import streamlit as st
-from PIL import Image, ImageEnhance, ImageDraw, ImageFont
-from rembg import remove
+from PIL import Image, ImageEnhance, ImageOps
 import io
 import google.generativeai as genai
 
-# --- Configuration de la page ---
-st.set_page_config(page_title="Studio Garage Dabireau", layout="wide", page_icon="🚗")
+# Configuration simple
+st.set_page_config(page_title="Studio Dabireau", layout="wide")
 
-# --- Constantes ---
-STUDIO_BG_COLOR = (235, 236, 240) # Gris clair studio
-INFO_TEXT = "GARAGE DABIREAU - 25 Rue Alexandre Arnaud, 44120 Vertou - Tel. 02 40 34 21 04"
+st.title("🚗 Studio Garage Dabireau")
 
-# --- Fonctions Utilitaires ---
-
-def adjust_image(image, brightness, contrast):
-    """Ajuste la luminosité et le contraste."""
-    img = ImageEnhance.Brightness(image).enhance(brightness)
-    img = ImageEnhance.Contrast(img).enhance(contrast)
-    return img
-
-def process_studio_mode(image, logo=None):
-    """Détoure la voiture et met le fond."""
-    with st.spinner('Détourage intelligent en cours... (Patientez 10s)'):
-        # 1. Détourage
-        try:
-            cutout = remove(image)
-        except Exception as e:
-            st.error(f"Erreur détourage : {e}")
-            return image
-
-        # 2. Création du fond studio
-        background = Image.new("RGB", cutout.size, STUDIO_BG_COLOR)
-        
-        # 3. Collage
-        background.paste(cutout, (0, 0), cutout)
-        final_image = background
-
-        # 4. Ajout Logo ou Texte
-        W, H = final_image.size
-        
-        if logo:
-            # Logo centré en haut
-            logo_ratio = logo.width / logo.height
-            new_w = int(W * 0.4) # 40% de la largeur
-            new_h = int(new_w / logo_ratio)
-            logo_resized = logo.resize((new_w, new_h))
-            
-            pos_x = (W - new_w) // 2
-            pos_y = 20
-            final_image.paste(logo_resized, (pos_x, pos_y), logo_resized)
-        else:
-            # Texte simple si pas de logo
-            draw = ImageDraw.Draw(final_image)
-            try:
-                # Essai police système
-                font = ImageFont.truetype("DejaVuSans-Bold.ttf", 40)
-            except:
-                font = ImageFont.load_default()
-            
-            # On écrit le texte grossièrement centré (méthode simple)
-            draw.text((50, 50), INFO_TEXT, fill=(0, 0, 0))
-
-        return final_image
-
-# --- Interface ---
-
-st.title("Studio Garage Dabireau 🚙")
-
-# Sidebar
+# Sidebar - Réglages
 with st.sidebar:
-    st.header("Configuration")
-    api_key = st.text_input("Clé API Google Gemini", type="password")
+    st.header("1. Configuration")
+    api_key = st.text_input("Clé Gemini (Optionnel)", type="password")
+    
+    st.header("2. Réglages Photo")
+    brightness = st.slider("Luminosité", 0.5, 1.5, 1.05)
+    contrast = st.slider("Contraste", 0.5, 1.5, 1.05)
 
-# Uploads
-col1, col2 = st.columns(2)
-with col1:
-    uploaded_file = st.file_uploader("1. Photo Véhicule", type=["jpg", "png", "jpeg"])
-with col2:
-    uploaded_logo = st.file_uploader("2. Logo (PNG Transparent)", type=["png"])
+# Zone principale
+col_upload, col_preview = st.columns([1, 2])
 
-logo_img = None
-if uploaded_logo:
-    logo_img = Image.open(uploaded_logo).convert("RGBA")
+with col_upload:
+    uploaded_file = st.file_uploader("📸 Charger la photo voiture", type=["jpg", "png", "jpeg"])
+    uploaded_logo = st.file_uploader("🏢 Charger le Logo/Texte (PNG)", type=["png"])
+    
+    if uploaded_logo and uploaded_file:
+        st.divider()
+        st.subheader("Placement sur le bardage")
+        
+        # Outils de positionnement
+        col_pos1, col_pos2 = st.columns(2)
+        with col_pos1:
+            x_pos = st.slider("Position Horizontal", 0, 100, 50)
+            y_pos = st.slider("Position Vertical", 0, 100, 20)
+        with col_pos2:
+            size = st.slider("Taille du texte", 10, 100, 30)
+            opacity = st.slider("Transparence (Réalisme)", 50, 100, 90)
 
+# Logique de traitement
 if uploaded_file:
-    original = Image.open(uploaded_file).convert("RGB")
+    # 1. Chargement et Amélioration
+    image = Image.open(uploaded_file).convert("RGB")
+    enhancer = ImageEnhance.Brightness(image)
+    image = enhancer.enhance(brightness)
+    enhancer = ImageEnhance.Contrast(image)
+    image = enhancer.enhance(contrast)
     
-    st.divider()
-    
-    # Réglages
-    c1, c2 = st.columns(2)
-    with c1: bright = st.slider("Luminosité", 0.5, 1.5, 1.0)
-    with c2: cont = st.slider("Contraste", 0.5, 1.5, 1.0)
-    
-    img_adjusted = adjust_image(original, bright, cont)
-    
-    # Choix du mode
-    mode = st.radio("Mode", ["Mode Studio (Fond Gris + Logo)", "Mode Simple (Photo d'origine)"])
-    
-    final_res = img_adjusted
+    final_image = image.copy()
+    W, H = image.size
 
-    if mode == "Mode Studio (Fond Gris + Logo)":
-        if st.button("Lancer le traitement magique ✨"):
-            final_res = process_studio_mode(img_adjusted, logo_img)
-            st.image(final_res, use_container_width=True)
-    else:
-        st.image(final_res, use_container_width=True)
+    # 2. Incrustation du Logo sur le mur
+    if uploaded_logo:
+        logo = Image.open(uploaded_logo).convert("RGBA")
+        
+        # Redimensionnement
+        target_width = int(W * (size / 100))
+        ratio = target_width / logo.width
+        target_height = int(logo.height * ratio)
+        logo = logo.resize((target_width, target_height), Image.Resampling.LANCZOS)
+        
+        # Gestion Opacité (Pour que ça fasse vrai sur le métal)
+        if opacity < 100:
+            alpha = logo.split()[3]
+            alpha = ImageEnhance.Brightness(alpha).enhance(opacity / 100.0)
+            logo.putalpha(alpha)
+        
+        # Positionnement
+        px = int((W - target_width) * (x_pos / 100))
+        py = int((H - target_height) * (y_pos / 100))
+        
+        # Collage
+        final_image.paste(logo, (px, py), logo)
 
-    # Export
-    st.divider()
-    buf = io.BytesIO()
-    final_res.save(buf, format="JPEG", quality=95)
-    st.download_button("Télécharger la photo", data=buf.getvalue(), file_name="garage_dabireau.jpg", mime="image/jpeg")
+    # Affichage Grand Format
+    with col_preview:
+        st.image(final_image, use_container_width=True)
+        
+        # Bouton Télécharger
+        buf = io.BytesIO()
+        final_image.save(buf, format="JPEG", quality=95)
+        st.download_button("⬇️ Télécharger Photo Finale", data=buf.getvalue(), file_name="dabireau_final.jpg", mime="image/jpeg", type="primary")
 
-    # IA Texte
-    if api_key and st.button("Rédiger l'annonce avec IA"):
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        prompt = f"Tu es le Garage Dabireau (Vertou). Analyse cette photo. Rédige une annonce Leboncoin pro et vendeuse pour ce véhicule. Inclus les infos: {INFO_TEXT}"
-        with st.spinner("Rédaction..."):
-            res = model.generate_content([prompt, final_res])
-            st.write(res.text)
-
-else:
-    st.info("Chargez une photo pour commencer.")
+        # IA Gemini
+        if api_key and st.button("✨ Rédiger annonce avec IA"):
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel('gemini-1.5-flash')
+            with st.spinner("Rédaction en cours..."):
+                try:
+                    resp = model.generate_content(["Tu es vendeur auto. Rédige une annonce Leboncoin pour cette voiture. Garage Dabireau, Vertou.", final_image])
+                    st.text_area("Annonce", resp.text, height=200)
+                except:
+                    st.error("Erreur IA")

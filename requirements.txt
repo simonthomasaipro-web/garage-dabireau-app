@@ -1,0 +1,7 @@
+streamlit
+rembg
+pillow
+numpy
+google-generativeai
+opencv-python-headless
+watchdog

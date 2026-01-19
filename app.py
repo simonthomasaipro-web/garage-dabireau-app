@@ -1,93 +1,107 @@
 import streamlit as st
-from PIL import Image, ImageEnhance, ImageOps
-import io
 import google.generativeai as genai
+from PIL import Image
+import io
 
-# Configuration simple
-st.set_page_config(page_title="Studio Dabireau", layout="wide")
+# --- CONFIGURATION ---
+st.set_page_config(page_title="Studio Dabireau (Gemini 3)", layout="wide", page_icon="🍌")
 
-st.title("🚗 Studio Garage Dabireau")
+# Texte par défaut
+DEFAULT_PROMPT = """
+Agis comme un expert retoucheur photo automobile.
+Tu reçois une photo de voiture.
+TA MISSION :
+1. Garde la voiture EXACTEMENT comme elle est (ne la modifie pas).
+2. Sur le mur en arrière-plan (bardage métallique), intègre de manière ultra-réaliste le texte suivant :
+"GARAGE DABIREAU
+25 Rue Alexandre Arnaud
+44120 Vertou
+Tel. 02 40 34 21 04"
 
-# Sidebar - Réglages
+CONTRAINTES :
+- Le texte doit suivre la perspective du mur.
+- Le texte doit avoir l'air peint ou collé sur le métal (légers reflets, texture).
+- Si tu changes l'environnement, garde un style "Parking Pro" ou "Studio Industriel".
+"""
+
+st.title("🍌 Studio Dabireau - Moteur IA")
+
+# --- SIDEBAR ---
 with st.sidebar:
-    st.header("1. Configuration")
-    api_key = st.text_input("Clé Gemini (Optionnel)", type="password")
+    st.header("1. Connexion")
+    api_key = st.text_input("Clé API Gemini", type="password")
     
-    st.header("2. Réglages Photo")
-    brightness = st.slider("Luminosité", 0.5, 1.5, 1.05)
-    contrast = st.slider("Contraste", 0.5, 1.5, 1.05)
-
-# Zone principale
-col_upload, col_preview = st.columns([1, 2])
-
-with col_upload:
-    uploaded_file = st.file_uploader("📸 Charger la photo voiture", type=["jpg", "png", "jpeg"])
-    uploaded_logo = st.file_uploader("🏢 Charger le Logo/Texte (PNG)", type=["png"])
+    st.header("2. Modèle IA")
+    # J'ai mis le nom exact de ton screenshot, mais c'est modifiable si ça change
+    model_name = st.text_input("Nom du Modèle", value="gemini-3-pro-image-preview")
     
-    if uploaded_logo and uploaded_file:
-        st.divider()
-        st.subheader("Placement sur le bardage")
-        
-        # Outils de positionnement
-        col_pos1, col_pos2 = st.columns(2)
-        with col_pos1:
-            x_pos = st.slider("Position Horizontal", 0, 100, 50)
-            y_pos = st.slider("Position Vertical", 0, 100, 20)
-        with col_pos2:
-            size = st.slider("Taille du texte", 10, 100, 30)
-            opacity = st.slider("Transparence (Réalisme)", 50, 100, 90)
-
-# Logique de traitement
-if uploaded_file:
-    # 1. Chargement et Amélioration
-    image = Image.open(uploaded_file).convert("RGB")
-    enhancer = ImageEnhance.Brightness(image)
-    image = enhancer.enhance(brightness)
-    enhancer = ImageEnhance.Contrast(image)
-    image = enhancer.enhance(contrast)
+    st.divider()
     
-    final_image = image.copy()
-    W, H = image.size
+    st.header("3. Réglages Créatifs")
+    environment = st.selectbox("Ambiance", ["Intégration Naturelle (Mur actuel)", "Studio Gris Pro", "Extérieur Ensoleillé"])
+    
+    # Le Seed permet de figer le style
+    seed_enable = st.checkbox("Figer le style (Seed)?")
+    seed_val = st.number_input("Numéro du Seed", value=42, step=1) if seed_enable else None
 
-    # 2. Incrustation du Logo sur le mur
-    if uploaded_logo:
-        logo = Image.open(uploaded_logo).convert("RGBA")
-        
-        # Redimensionnement
-        target_width = int(W * (size / 100))
-        ratio = target_width / logo.width
-        target_height = int(logo.height * ratio)
-        logo = logo.resize((target_width, target_height), Image.Resampling.LANCZOS)
-        
-        # Gestion Opacité (Pour que ça fasse vrai sur le métal)
-        if opacity < 100:
-            alpha = logo.split()[3]
-            alpha = ImageEnhance.Brightness(alpha).enhance(opacity / 100.0)
-            logo.putalpha(alpha)
-        
-        # Positionnement
-        px = int((W - target_width) * (x_pos / 100))
-        py = int((H - target_height) * (y_pos / 100))
-        
-        # Collage
-        final_image.paste(logo, (px, py), logo)
+# --- ZONE PRINCIPALE ---
+col_left, col_right = st.columns(2)
 
-    # Affichage Grand Format
-    with col_preview:
-        st.image(final_image, use_container_width=True)
-        
-        # Bouton Télécharger
-        buf = io.BytesIO()
-        final_image.save(buf, format="JPEG", quality=95)
-        st.download_button("⬇️ Télécharger Photo Finale", data=buf.getvalue(), file_name="dabireau_final.jpg", mime="image/jpeg", type="primary")
+uploaded_file = None
 
-        # IA Gemini
-        if api_key and st.button("✨ Rédiger annonce avec IA"):
+with col_left:
+    st.subheader("📸 Photo Originale")
+    uploaded_file = st.file_uploader("Charger la voiture", type=["jpg", "png", "jpeg"])
+    if uploaded_file:
+        image_input = Image.open(uploaded_file)
+        st.image(image_input, use_container_width=True)
+
+with col_right:
+    st.subheader("✨ Résultat IA")
+    
+    if uploaded_file and api_key:
+        if st.button("Lancer la Génération (Nano Banana)", type="primary"):
+            
             genai.configure(api_key=api_key)
-            model = genai.GenerativeModel('gemini-1.5-flash')
-            with st.spinner("Rédaction en cours..."):
-                try:
-                    resp = model.generate_content(["Tu es vendeur auto. Rédige une annonce Leboncoin pour cette voiture. Garage Dabireau, Vertou.", final_image])
-                    st.text_area("Annonce", resp.text, height=200)
-                except:
-                    st.error("Erreur IA")
+            
+            # Construction du prompt final
+            final_prompt = DEFAULT_PROMPT
+            if environment == "Studio Gris Pro":
+                final_prompt += "\nCHANGE L'ARRIERE PLAN pour un mur gris neutre style studio photo propre."
+            elif environment == "Extérieur Ensoleillé":
+                final_prompt += "\nAjoute une lumière solaire chaleureuse et naturelle."
+            
+            try:
+                with st.spinner("L'IA travaille... (Cela peut prendre 10-20 secondes)"):
+                    # Configuration du modèle
+                    # Note : La configuration exacte dépend de la version de la librairie google-generativeai
+                    # Pour la version preview image, on envoie image + prompt
+                    model = genai.GenerativeModel(model_name)
+                    
+                    # Appel API
+                    response = model.generate_content([final_prompt, image_input])
+                    
+                    # Affichage
+                    # Gemini peut renvoyer plusieurs formats, on cherche l'image
+                    try:
+                        # Si l'API renvoie une image directement dans parts
+                        img_data = response.parts[0].inline_data
+                        image_result = Image.open(io.BytesIO(img_data.data))
+                        st.image(image_result, use_container_width=True)
+                        
+                        # Bouton DL
+                        buf = io.BytesIO()
+                        image_result.save(buf, format="JPEG", quality=95)
+                        st.download_button("Télécharger", buf.getvalue(), "dabireau_ia.jpg", "image/jpeg")
+                        
+                    except Exception as parse_error:
+                        # Parfois le modèle refuse et renvoie du texte (sécurité ou erreur)
+                        st.warning("L'IA a renvoyé du texte au lieu d'une image (vérifiez le modèle) :")
+                        st.write(response.text)
+                        
+            except Exception as e:
+                st.error(f"Erreur API : {e}")
+                st.info("Vérifiez que votre clé API a bien accès au modèle 'gemini-3-pro-image-preview'. Sinon essayez 'gemini-2.0-flash-exp'.")
+
+    elif not api_key:
+        st.info("Entrez votre clé API à gauche pour commencer.")

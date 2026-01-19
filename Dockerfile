@@ -1,6 +1,6 @@
 FROM python:3.9-slim
 
-# CORRECTION : On utilise les nouveaux noms de paquets pour Debian Bookworm/Trixie
+# Installation des dépendances système
 RUN apt-get update && apt-get install -y \
     build-essential \
     libgl1 \
@@ -11,6 +11,10 @@ WORKDIR /app
 
 COPY . .
 
+# ASTUCE : Cette ligne force Google a voir que le fichier a changé
+RUN pip install --upgrade pip
+
+# On installe les librairies (cette fois il va bien lire le nouveau requirements.txt)
 RUN pip install --no-cache-dir -r requirements.txt
 
 EXPOSE 8080
